@@ -6,6 +6,15 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Required permissions so the workflow can create releases and upload assets using GITHUB_TOKEN
+# Optional: provide a repository secret named `RELEASE_TOKEN` (a personal access token with `repo` scope)
+# if you want the release upload to be performed by a different token. If `RELEASE_TOKEN` exists it will
+# be used for uploading release assets; otherwise the workflow will fall back to the automatic `GITHUB_TOKEN`.
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
 env:
   BINARY_NAME: qrcode
   CGO: "0"
@@ -121,11 +130,20 @@ jobs:
       - name: List dist contents
         run: ls -la dist
 
+      - name: Prepare release token
+        run: |
+          # If a RELEASE_TOKEN secret is defined, use it for the release upload.
+          # Otherwise fall back to the built-in GITHUB_TOKEN.
+          if [ -n "${{ secrets.RELEASE_TOKEN }}" ]; then
+            echo "Using RELEASE_TOKEN secret for release upload"
+            echo "GITHUB_TOKEN=${{ secrets.RELEASE_TOKEN }}" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TOKEN not provided; using default GITHUB_TOKEN"
+            echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+          fi
+
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           files: dist/**
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
