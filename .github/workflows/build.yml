@@ -1,0 +1,169 @@
+name: Build and Package (Makefile-compatible)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  BINARY_NAME: qrcode
+  CGO: "0"
+  LD_FLAGS: "-s -w"
+  DIST_DIR: dist
+  GO_VERSION: "1.25"
+
+jobs:
+  build:
+    name: Build and package (matches Makefile)
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tar.gz
+          - goos: darwin
+            goarch: amd64
+            archive: tar.gz
+          - goos: darwin
+            goarch: arm64
+            archive: tar.gz
+          - goos: windows
+            goarch: amd64
+            archive: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Show Go version
+        run: go version
+
+      - name: Build binary (Makefile flags)
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          BINARY_NAME: ${{ env.BINARY_NAME }}
+          CGO: ${{ env.CGO }}
+          LD_FLAGS: ${{ env.LD_FLAGS }}
+          DIST_DIR: ${{ env.DIST_DIR }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${DIST_DIR}"
+          OUT_BASE="${BINARY_NAME}-${GOOS}-${GOARCH}"
+          if [ "${GOOS}" = "windows" ]; then
+            OUT_BASE="${OUT_BASE}.exe"
+          fi
+          OUT_PATH="${DIST_DIR}/${OUT_BASE}"
+          echo "Building ${OUT_PATH} for ${GOOS}/${GOARCH}"
+          CGO_ENABLED="${CGO}" GOOS="${GOOS}" GOARCH="${GOARCH}" go build -trimpath -ldflags "${LD_FLAGS}" -o "${OUT_PATH}" .
+          echo "Built file:"
+          ls -l "${OUT_PATH}"
+
+      - name: Package artifact (Makefile-style names)
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          BINARY_NAME: ${{ env.BINARY_NAME }}
+          DIST_DIR: ${{ env.DIST_DIR }}
+        run: |
+          set -euo pipefail
+          OUT_BASE="${BINARY_NAME}-${GOOS}-${GOARCH}"
+          if [ "${GOOS}" = "windows" ]; then
+            OUT_BASE="${OUT_BASE}.exe"
+          fi
+          if [ "${{ matrix.archive }}" = "tar.gz" ]; then
+            tar -C "${DIST_DIR}" -czf "${DIST_DIR}/${OUT_BASE}.tar.gz" "${OUT_BASE}"
+            echo "Created ${DIST_DIR}/${OUT_BASE}.tar.gz"
+          else
+            (cd "${DIST_DIR}" && zip -r "${OUT_BASE}.zip" "${OUT_BASE}")
+            echo "Created ${DIST_DIR}/${OUT_BASE}.zip"
+          fi
+          ls -la "${DIST_DIR}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/**
+
+  release:
+    name: Create GitHub Release and upload dist artifacts
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Ensure tools (zip for packaging on runner)
+        run: |
+          apt-get update || true
+          apt-get install -y zip || true
+
+      - name: Build distributions using Makefile
+        run: |
+          set -euo pipefail
+          # Use Makefile to build & package everything into dist/
+          make dist-all
+
+      - name: List dist contents
+        run: ls -la dist
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          body: "Automated release for ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+
+      - name: Upload assets to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_URL: ${{ steps.create_release.outputs.upload_url }}
+        run: |
+          set -euo pipefail
+          # upload_url contains a template like: https://uploads.github.com/repos/:owner/:repo/releases/:id/assets{?name,label}
+          UPLOAD_URL_RAW="${UPLOAD_URL}"
+          UPLOAD_URL="${UPLOAD_URL_RAW%\{*}"
+          for f in dist/*; do
+            [ -f "$f" ] || continue
+            fname=$(basename "$f")
+            echo "Uploading $fname to release..."
+            curl --fail --silent --show-error -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$f" \
+              "${UPLOAD_URL}?name=${fname}"
+          done
+
+      - name: Final listing
+        run: echo "Release ${{ github.ref_name }} created and assets uploaded."
