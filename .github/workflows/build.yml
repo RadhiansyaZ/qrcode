@@ -1,9 +1,7 @@
-name: Build and Package (Makefile-compatible)
+name: Build and Release (Makefile-compatible)
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -91,6 +89,7 @@ jobs:
           if [ "${GOOS}" = "windows" ]; then
             OUT_BASE="${OUT_BASE}.exe"
           fi
+          # Create tar.gz or zip IN the dist dir, containing the binary with the same filename
           if [ "${{ matrix.archive }}" = "tar.gz" ]; then
             tar -C "${DIST_DIR}" -czf "${DIST_DIR}/${OUT_BASE}.tar.gz" "${OUT_BASE}"
             echo "Created ${DIST_DIR}/${OUT_BASE}.tar.gz"
@@ -100,8 +99,8 @@ jobs:
           fi
           ls -la "${DIST_DIR}"
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload artifacts (use v4)
+        uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/**
@@ -109,61 +108,24 @@ jobs:
   release:
     name: Create GitHub Release and upload dist artifacts
     runs-on: ubuntu-latest
+    needs: build
     if: startsWith(github.ref, 'refs/tags/')
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Ensure tools (zip for packaging on runner)
-        run: |
-          apt-get update || true
-          apt-get install -y zip || true
-
-      - name: Build distributions using Makefile
-        run: |
-          set -euo pipefail
-          # Use Makefile to build & package everything into dist/
-          make dist-all
+          # download everything into the dist directory
+          path: dist
 
       - name: List dist contents
         run: ls -la dist
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          body: "Automated release for ${{ github.ref_name }}"
-          draft: false
-          prerelease: false
-
-      - name: Upload assets to Release
+          name: ${{ github.ref_name }}
+          files: dist/**
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPLOAD_URL: ${{ steps.create_release.outputs.upload_url }}
-        run: |
-          set -euo pipefail
-          # upload_url contains a template like: https://uploads.github.com/repos/:owner/:repo/releases/:id/assets{?name,label}
-          UPLOAD_URL_RAW="${UPLOAD_URL}"
-          UPLOAD_URL="${UPLOAD_URL_RAW%\{*}"
-          for f in dist/*; do
-            [ -f "$f" ] || continue
-            fname=$(basename "$f")
-            echo "Uploading $fname to release..."
-            curl --fail --silent --show-error -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary @"$f" \
-              "${UPLOAD_URL}?name=${fname}"
-          done
-
-      - name: Final listing
-        run: echo "Release ${{ github.ref_name }} created and assets uploaded."
