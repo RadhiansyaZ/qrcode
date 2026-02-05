@@ -1,0 +1,72 @@
+Beginner-friendly macOS Terminal tutorial (step-by-step)
+This short guide walks you through opening Terminal on macOS, navigating to the folder with the qrcode binary, making the binary executable if needed, and running the program with a content file. It assumes you have the `qrcode-darwin-arm64` or `qrcode-darwin-amd64` binary in a folder (for example, the `dist` folder) and you are new to the Terminal.
+
+1) Open Terminal
+- Spotlight (recommended for beginners):
+  - Press Command (⌘) + Space.
+  - Type "Terminal" and press Enter.
+- Or use Finder:
+  - Open Finder → Applications → Utilities → Terminal → double-click Terminal.app.
+
+2) Locate the folder where your binary is (e.g., the `dist` folder)
+- If you downloaded or saved the files into your "Downloads" folder or project folder, note that folder's location in Finder.
+- Easiest way to change directory from Finder to Terminal:
+  - Open Finder and navigate to the folder (for example, the `dist` folder that contains `qrcode-darwin-arm64`).
+  - Click the folder icon and drag the folder into the Terminal window; Terminal will paste the folder's full path.
+  - After dragging the folder into Terminal, type `cd ` (include the space), then drop the folder — the path will appear after `cd `. Press Enter.
+  - Example after drag-and-drop:
+    ```
+    cd /Users/yourname/Downloads/qrcode/dist
+    ```
+
+3) (Optional) Make the binary executable
+- If you see a "permission denied" error when running the binary, run:
+  ```
+  chmod +x ./qrcode-darwin-arm64
+  ```
+  or for Intel:
+  ```
+  chmod +x ./qrcode-darwin-amd64
+  ```
+- This updates the file permissions so you can run the program.
+
+4) Use the example link directly (no file required)
+- Instead of creating a file, you can pass the example URL directly to the program. We will use this example URL:
+  ```
+  https://www.youtube.com/watch?v=dQw4w9WgXcQ
+  ```
+
+5) Run the program using the example link
+- Example command (using the arm64 binary), passing the example URL inline (quote because it contains special characters):
+  ```
+  ./qrcode-darwin-arm64 -content "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  ```
+  This will generate a PNG in the same folder (default timestamped name), e.g. `2026-02-05_134405Z07.png`.
+- To set a specific output filename:
+  ```
+  ./qrcode-darwin-arm64 -content "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -output example.png
+  ```
+
+6) Helpful tips for beginners
+- If Terminal says `command not found: ./qrcode-darwin-arm64` or "permission denied":
+  - Ensure you're in the same folder as the binary (`ls` lists files in the folder).
+  - Run `ls -la` to see file names and permissions; the binary should be present.
+  - Use `chmod +x` as shown above to make it executable.
+- To see the exact command-line options at any time:
+  ```
+  ./qrcode-darwin-arm64 -h
+  ```
+  or
+  ```
+  ./qrcode-darwin-amd64 -h
+  ```
+- If your content has spaces or special characters, always quote it:
+  ```
+  ./qrcode-darwin-arm64 -content "Hello world from Terminal!"
+  ```
+
+7) After the program runs
+- The program logs messages in Terminal and writes a PNG file into the same directory by default (or the filename you provided with `-output`).
+- Open the generated PNG by double-clicking it in Finder.
+
+That's it — once you've followed these steps you should be able to generate QR PNGs using the binary in the `dist` folder from the Terminal on macOS. Good luck!
